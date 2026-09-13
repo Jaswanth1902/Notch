@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/notch_banner.svg" alt="Notch Banner" width="100%" />
+</p>
+
 # 🏝️ Notch — The Ambient Dynamic Island & AI Agent HUD for Windows 11
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue?style=flat-square&logo=windows)](https://github.com/Jaswanth1902/Notch)

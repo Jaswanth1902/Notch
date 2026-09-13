@@ -1,16 +1,6 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Fast-path: Execute compiled native micro-shim if available
-$hookExe = "$PSScriptRoot\agy-hook.exe"
-if (-not (Test-Path $hookExe)) { $hookExe = "$HOME\.notch\hooks\agy-hook.exe" }
-if (-not (Test-Path $hookExe)) { $hookExe = "$HOME\.notch\agy-hook.exe" }
-
 $raw = $input | Out-String
-if (Test-Path $hookExe) {
-    $out = $raw | & $hookExe stop
-    Write-Output $out
-    exit 0
-}
 
 try {
     $SPOOL_DIR = "$HOME\.notch"

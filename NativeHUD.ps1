@@ -618,7 +618,7 @@ function Get-SessionDisplayName($sdata) {
         $transPath = "$HOME\.gemini\antigravity-cli\brain\$convId\.system_generated\logs\transcript.jsonl"
         if (Test-Path $transPath) {
             try {
-                $lines = Get-Content $transPath -Tail 35 -ErrorAction SilentlyContinue
+                $lines = Get-Content $transPath -Tail 150 -ErrorAction SilentlyContinue
                 for ($i = $lines.Count - 1; $i -ge 0; $i--) {
                     if ($lines[$i] -match '"type":\s*"USER_INPUT"') {
                         $parsed = $lines[$i] | ConvertFrom-Json
@@ -696,7 +696,7 @@ function Check-State {
         $global:pendingIndex = 0
     }
 
-    # 2. Check Sessions & Auto-Prune Inactive/Zombie Sessions (45s TTL, 20s Review Decay)
+    # 2. Check Sessions & Auto-Prune Inactive/Zombie Sessions (300s TTL, 60s Review Decay)
     $sessionFiles = Get-ChildItem -Path $SESSIONS_DIR -Filter "*.json" -ErrorAction SilentlyContinue
     $hasError   = $false
     $hasReview  = $false
@@ -710,19 +710,19 @@ function Check-State {
         $path = $sf.FullName
         $sdata = Read-JsonSafely $path
         
-        # Pruning check: delete stale sessions older than 45 seconds
+        # Pruning check: delete stale sessions older than 300 seconds
         if ($sdata -and $sdata.timestamp) {
             $ageSec = $nowUtc - [long]$sdata.timestamp
-            if ($ageSec -gt 45) {
+            if ($ageSec -gt 300) {
                 try { [System.IO.File]::Delete($path) } catch { }
                 continue
             }
-            # If in review for > 20 seconds, auto-decay to prevent permanently trapping HUD
-            if (($sdata.state -eq "review" -or $sdata.state -eq "completed") -and $ageSec -gt 20) {
+            # If in review for > 60 seconds, auto-decay to prevent permanently trapping HUD
+            if (($sdata.state -eq "review" -or $sdata.state -eq "completed") -and $ageSec -gt 60) {
                 try { [System.IO.File]::Delete($path) } catch { }
                 continue
             }
-        } elseif ($sf.LastWriteTime -lt (Get-Date).AddSeconds(-45)) {
+        } elseif ($sf.LastWriteTime -lt (Get-Date).AddSeconds(-300)) {
             try { [System.IO.File]::Delete($path) } catch { }
             continue
         }
@@ -741,6 +741,47 @@ function Check-State {
             if ($st -eq "error") { $hasError = $true }
             elseif ($st -eq "review" -or $st -eq "completed") { $hasReview = $true }
             elseif ($st -eq "working" -or $st -eq "thinking") { $hasWorking = $true }
+        }
+    }
+
+    # Pull Fallback: If no spool files exist, check if agy.exe is running and inspect the active brain transcripts
+    if ($currentPaths.Count -eq 0) {
+        $agyProc = Get-Process agy -ErrorAction SilentlyContinue
+        if ($agyProc) {
+            $recentTranscripts = Get-ChildItem -Path "$HOME\.gemini\antigravity-cli\brain\*\.system_generated\logs\transcript.jsonl" -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-30) } |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 3
+
+            foreach ($tf in $recentTranscripts) {
+                try {
+                    $convId = $tf.Directory.Parent.Parent.Name
+                    $lastLines = Get-Content $tf.FullName -Tail 15 -ErrorAction SilentlyContinue
+                    $mName = "CLI AGENT"
+                    foreach ($l in $lastLines) {
+                        if ($l -match 'setting\s+`?Model Selection`?\s+from\s+.*?to\s+([A-Za-z0-9. ()-]+?)\.\s+No need') {
+                            $mName = $matches[1].Trim()
+                        } elseif ($l -match '"modelName":\s*"([^"]+)"') {
+                            $mName = $matches[1].Trim()
+                        }
+                    }
+                    $fallbackState = [ordered]@{
+                        state           = "working"
+                        message         = "Active CLI Session"
+                        timestamp       = $nowUtc
+                        conversation_id = $convId
+                        project         = "Antigravity"
+                        model           = $mName
+                        agent           = "antigravity"
+                    }
+                    $fPath = "$SESSIONS_DIR\$convId.json"
+                    [System.IO.File]::WriteAllText($fPath, ($fallbackState | ConvertTo-Json -Compress), [System.Text.Encoding]::UTF8)
+                    $currentPaths += $fPath
+                    $hasWorking = $true
+                    $dispName = Get-SessionDisplayName $fallbackState
+                    $summaryList += "$bullet $($dispName): working - $($fallbackState.message)"
+                } catch { }
+            }
         }
     }
 

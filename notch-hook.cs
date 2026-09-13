@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Notch.HUD
 {
@@ -112,7 +113,14 @@ namespace Notch.HUD
                     else if (esc == 'n') sb.Append('\n');
                     else if (esc == 'r') sb.Append('\r');
                     else if (esc == 't') sb.Append('\t');
-                    else sb.Append(esc);
+                    else if (esc == 'u' && _index + 4 <= _json.Length)
+                    {
+                        string hex = _json.Substring(_index, 4);
+                        _index += 4;
+                        int code;
+                        if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out code))
+                            sb.Append((char)code);
+                    }
                 }
                 else
                 {
@@ -124,7 +132,6 @@ namespace Notch.HUD
 
         private bool ParseBoolean()
         {
-            SkipWhitespace();
             if (_json.Substring(_index).StartsWith("true", StringComparison.OrdinalIgnoreCase))
             {
                 _index += 4;
@@ -140,7 +147,6 @@ namespace Notch.HUD
 
         private object ParseNull()
         {
-            SkipWhitespace();
             if (_json.Substring(_index).StartsWith("null", StringComparison.OrdinalIgnoreCase))
             {
                 _index += 4;
@@ -150,22 +156,24 @@ namespace Notch.HUD
 
         private object ParseNumber()
         {
-            SkipWhitespace();
             int start = _index;
-            while (_index < _json.Length && (char.IsDigit(_json[_index]) || _json[_index] == '.' || _json[_index] == '-' || _json[_index] == '+' || _json[_index] == 'e' || _json[_index] == 'E'))
+            if (_index < _json.Length && _json[_index] == '-') _index++;
+            while (_index < _json.Length && (char.IsDigit(_json[_index]) || _json[_index] == '.' || _json[_index] == 'e' || _json[_index] == 'E' || _json[_index] == '+' || _json[_index] == '-'))
+            {
                 _index++;
+            }
             string numStr = _json.Substring(start, _index - start);
             long l;
             if (long.TryParse(numStr, out l)) return l;
             double d;
-            if (double.TryParse(numStr, out d)) return d;
+            if (double.TryParse(numStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out d)) return d;
             return 0;
         }
 
         public static string Escape(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";
-            var sb = new StringBuilder();
+            var sb = new StringBuilder(s.Length + 4);
             foreach (char c in s)
             {
                 if (c == '\\') sb.Append("\\\\");
@@ -180,102 +188,139 @@ namespace Notch.HUD
         }
     }
 
-    public class Program
+    public static class Program
     {
-        private static readonly string UserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        private static readonly string SpoolDir = Path.Combine(UserProfile, ".notch");
-        private static readonly string SessionsDir = Path.Combine(SpoolDir, "sessions");
-        private static readonly string PendingDir = Path.Combine(SpoolDir, "pending");
-        private static readonly string DecisionsDir = Path.Combine(SpoolDir, "decisions");
-        private static readonly string PidFile = Path.Combine(SpoolDir, "hud.pid");
-        private static readonly string AutoFlagFile = Path.Combine(SpoolDir, "auto_mode.flag");
-        private static readonly string AutoLogFile = Path.Combine(SpoolDir, "auto_execution.log");
+        private static readonly string UserHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        
+        // Spool 1: .notch
+        private static readonly string AgySpool = Path.Combine(UserHome, ".notch");
+        private static readonly string AgySessions = Path.Combine(AgySpool, "sessions");
+        private static readonly string AgyPending = Path.Combine(AgySpool, "pending");
+        private static readonly string AgyDecisions = Path.Combine(AgySpool, "decisions");
+        private static readonly string AgyState = Path.Combine(AgySpool, "state.json");
+        private static readonly string AgyAutoFlag = Path.Combine(AgySpool, "auto_mode.flag");
 
-        static string GetString(Dictionary<string, object> dict, string key, string defVal)
-        {
-            if (dict == null || !dict.ContainsKey(key) || dict[key] == null) return defVal;
-            return dict[key].ToString();
-        }
+        // Spool 2: .notch (Jaswanth's open-source standalone format)
+        private static readonly string NotchSpool = Path.Combine(UserHome, ".notch");
+        private static readonly string NotchSessions = Path.Combine(NotchSpool, "sessions");
+        private static readonly string NotchState = Path.Combine(NotchSpool, "state.json");
 
-        static Dictionary<string, object> GetDict(Dictionary<string, object> dict, string key)
-        {
-            if (dict == null || !dict.ContainsKey(key) || dict[key] == null) return null;
-            return dict[key] as Dictionary<string, object>;
-        }
-
-        static List<object> GetList(Dictionary<string, object> dict, string key)
-        {
-            if (dict == null || !dict.ContainsKey(key) || dict[key] == null) return null;
-            return dict[key] as List<object>;
-        }
-
-        static void EnsureDirs()
-        {
-            if (!Directory.Exists(SpoolDir)) Directory.CreateDirectory(SpoolDir);
-            if (!Directory.Exists(SessionsDir)) Directory.CreateDirectory(SessionsDir);
-            if (!Directory.Exists(PendingDir)) Directory.CreateDirectory(PendingDir);
-            if (!Directory.Exists(DecisionsDir)) Directory.CreateDirectory(DecisionsDir);
-        }
-
-        static bool IsHudRunning()
+        private static void EnsureDirs()
         {
             try
             {
-                if (File.Exists(PidFile))
-                {
-                    string raw = File.ReadAllText(PidFile).Trim();
-                    var dict = MiniJson.Parse(raw) as Dictionary<string, object>;
-                    if (dict != null && dict.ContainsKey("pid"))
-                    {
-                        int pid = Convert.ToInt32(dict["pid"]);
-                        Process p = Process.GetProcessById(pid);
-                        if (p != null && !p.HasExited)
-                        {
-                            string pName = p.ProcessName.ToLowerInvariant();
-                            if (pName.Contains("powershell") || pName.Contains("pwsh"))
-                                return true;
-                        }
-                    }
-                }
+                if (!Directory.Exists(AgySessions)) Directory.CreateDirectory(AgySessions);
+                if (!Directory.Exists(AgyPending)) Directory.CreateDirectory(AgyPending);
+                if (!Directory.Exists(AgyDecisions)) Directory.CreateDirectory(AgyDecisions);
+                if (!Directory.Exists(NotchSessions)) Directory.CreateDirectory(NotchSessions);
             }
             catch { }
-
-            return false;
         }
 
-        static long UtcNowSeconds()
+        private static long UtcNowSeconds()
         {
             return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
         }
 
-        static void WriteFileAtomic(string filePath, string content)
+        private static string GetString(Dictionary<string, object> dict, string key, string fallback = "")
+        {
+            if (dict == null) return fallback;
+            object val;
+            if (dict.TryGetValue(key, out val) && val != null) return val.ToString();
+            return fallback;
+        }
+
+        private static Dictionary<string, object> GetDict(Dictionary<string, object> dict, string key)
+        {
+            if (dict == null) return null;
+            object val;
+            if (dict.TryGetValue(key, out val) && val is Dictionary<string, object>) return (Dictionary<string, object>)val;
+            return null;
+        }
+
+        private static List<object> GetList(Dictionary<string, object> dict, string key)
+        {
+            if (dict == null) return null;
+            object val;
+            if (dict.TryGetValue(key, out val) && val is List<object>) return (List<object>)val;
+            return null;
+        }
+
+        private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+
+        private static void WriteFileAtomic(string filePath, string content)
         {
             try
             {
-                File.WriteAllText(filePath, content, Encoding.UTF8);
+                string tmp = filePath + ".tmp." + Guid.NewGuid().ToString("N");
+                File.WriteAllText(tmp, content, Utf8NoBom);
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+                File.Move(tmp, filePath);
             }
             catch
             {
-                Thread.Sleep(10);
-                try { File.WriteAllText(filePath, content, Encoding.UTF8); } catch { }
+                try { File.WriteAllText(filePath, content, Utf8NoBom); } catch { }
             }
+        }
+
+        private static void BroadcastState(string convId, string stateJson)
+        {
+            EnsureDirs();
+            // 1. Write to sessions/<convId>.json
+            if (!string.IsNullOrEmpty(convId))
+            {
+                WriteFileAtomic(Path.Combine(AgySessions, convId + ".json"), stateJson);
+                WriteFileAtomic(Path.Combine(NotchSessions, convId + ".json"), stateJson);
+            }
+            // 2. Write to primary state.json
+            WriteFileAtomic(AgyState, stateJson);
+            WriteFileAtomic(NotchState, stateJson);
         }
 
         public static int Main(string[] args)
         {
-            try { Console.OutputEncoding = Encoding.UTF8; } catch { }
+            string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "";
+            try
+            {
+                Console.OutputEncoding = Utf8NoBom;
+            }
+            catch { }
+
+            try
+            {
+                return Run(mode);
+            }
+            catch
+            {
+                // Blanket guarantee: Never exit non-zero; never break CLI turn
+                if (mode.Contains("gate") || mode.Contains("pre-tool"))
+                {
+                    Console.WriteLine("{\"decision\":\"allow\"}");
+                }
+                else
+                {
+                    Console.WriteLine("{}");
+                }
+                return 0;
+            }
+        }
+
+        private static int Run(string mode)
+        {
             EnsureDirs();
 
-            string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "";
             string exeName = Path.GetFileNameWithoutExtension(Process.GetCurrentProcess().MainModule.FileName).ToLowerInvariant();
-
             if (string.IsNullOrEmpty(mode))
             {
                 if (exeName.Contains("gate")) mode = "approval-gate";
-                else if (exeName.Contains("pre")) mode = "pre-invocation";
+                else if (exeName.Contains("pre-invoc")) mode = "pre-invocation";
+                else if (exeName.Contains("pre-tool")) mode = "pre-tool-use";
                 else if (exeName.Contains("post")) mode = "post-tool-use";
                 else if (exeName.Contains("stop")) mode = "stop";
-                else mode = "approval-gate";
+                else mode = "pre-tool-use";
             }
 
             string stdin = "";
@@ -283,154 +328,146 @@ namespace Notch.HUD
             {
                 if (Console.IsInputRedirected)
                 {
-                    stdin = Console.In.ReadToEnd();
+                    var readTask = Task.Factory.StartNew(() => Console.In.ReadToEnd());
+                    if (readTask.Wait(50)) // 50ms strict bound
+                    {
+                        stdin = readTask.Result;
+                    }
                 }
             }
             catch { }
 
+            var root = MiniJson.Parse(stdin) as Dictionary<string, object>;
+            string convId = GetString(root, "conversationId", "default");
+            string modelName = GetString(root, "modelName", "Antigravity");
+
+            string project = "";
+            var paths = GetList(root, "workspacePaths");
+            if (paths != null && paths.Count > 0 && paths[0] != null)
+            {
+                project = Path.GetFileName(paths[0].ToString().TrimEnd('\\', '/'));
+            }
+            if (string.IsNullOrEmpty(project))
+            {
+                project = Path.GetFileName(Directory.GetCurrentDirectory().TrimEnd('\\', '/'));
+            }
+
             switch (mode)
             {
-                case "approval-gate":
-                case "gate":
-                    return HandleApprovalGate(stdin);
-
                 case "pre-invocation":
                 case "pre":
-                    return HandlePreInvocation(stdin);
+                    return HandlePreInvocation(convId, modelName, project);
+
+                case "pre-tool-use":
+                case "pre-tool":
+                case "approval-gate":
+                case "gate":
+                    return HandlePreToolUse(root, convId, modelName, project);
 
                 case "post-tool-use":
                 case "post":
-                    return HandlePostToolUse(stdin);
+                case "post-tool":
+                    return HandlePostToolUse(root, convId, modelName, project);
 
                 case "stop":
-                    return HandleStop(stdin);
+                    return HandleStop(convId, modelName, project);
 
                 default:
-                    Console.WriteLine("Usage: agy-hook <approval-gate|pre-invocation|post-tool-use|stop>");
+                    Console.WriteLine("{}");
                     return 0;
             }
         }
 
-        private static int HandlePreInvocation(string stdin)
+        private static int HandlePreInvocation(string convId, string modelName, string project)
         {
-            try
-            {
-                var root = MiniJson.Parse(stdin) as Dictionary<string, object>;
-                string convId = GetString(root, "conversationId", "default");
-                string modelName = GetString(root, "modelName", "");
-                
-                string project = "";
-                var paths = GetList(root, "workspacePaths");
-                if (paths != null && paths.Count > 0 && paths[0] != null)
-                {
-                    project = Path.GetFileName(paths[0].ToString());
-                }
-                if (string.IsNullOrEmpty(project)) project = Path.GetFileName(Directory.GetCurrentDirectory());
+            string stateJson = string.Format(
+                "{{\"state\":\"thinking\",\"message\":\"Thinking...\",\"timestamp\":{0},\"conversation_id\":\"{1}\",\"project\":\"{2}\",\"model\":\"{3}\",\"agent\":\"antigravity\"}}",
+                UtcNowSeconds(), MiniJson.Escape(convId), MiniJson.Escape(project), MiniJson.Escape(modelName)
+            );
 
-                string stateJson = string.Format(
-                    "{{\"state\":\"thinking\",\"message\":\"Thinking...\",\"timestamp\":{0},\"conversation_id\":\"{1}\",\"project\":\"{2}\",\"model\":\"{3}\",\"agent\":\"antigravity\"}}",
-                    UtcNowSeconds(), MiniJson.Escape(convId), MiniJson.Escape(project), MiniJson.Escape(modelName)
-                );
-
-                WriteFileAtomic(Path.Combine(SessionsDir, convId + ".json"), stateJson);
-            }
-            catch { }
-
+            BroadcastState(convId, stateJson);
             Console.WriteLine("{}");
             return 0;
         }
 
-        private static int HandlePostToolUse(string stdin)
+        private static int HandlePreToolUse(Dictionary<string, object> root, string convId, string modelName, string project)
         {
-            try
+            string tool = "tool";
+            Dictionary<string, object> targs = null;
+            var tc = GetDict(root, "toolCall");
+            if (tc != null)
             {
-                var root = MiniJson.Parse(stdin) as Dictionary<string, object>;
-                string convId = GetString(root, "conversationId", "default");
-                string modelName = GetString(root, "modelName", "");
-
-                string tool = "tool";
-                Dictionary<string, object> targs = null;
-                var tc = GetDict(root, "toolCall");
-                if (tc != null)
-                {
-                    tool = GetString(tc, "name", "tool");
-                    targs = GetDict(tc, "args");
-                }
-
-                string summary = "Running " + tool;
-                if (tool == "run_command" && targs != null)
-                {
-                    string cmd = GetString(targs, "CommandLine", "");
-                    if (cmd.Length > 60) cmd = cmd.Substring(0, 57) + "...";
-                    summary = "Ran: " + cmd;
-                }
-                else if (tool == "view_file" && targs != null)
-                {
-                    string p = GetString(targs, "AbsolutePath", "");
-                    summary = "Read: " + Path.GetFileName(p);
-                }
-                else if ((tool == "replace_file_content" || tool == "write_to_file") && targs != null)
-                {
-                    string p = GetString(targs, "TargetFile", "");
-                    summary = "Edited: " + Path.GetFileName(p);
-                }
-                else if (tool == "grep_search" && targs != null)
-                {
-                    string q = GetString(targs, "Query", "");
-                    if (q.Length > 40) q = q.Substring(0, 37) + "...";
-                    summary = "Search: " + q;
-                }
-                else if (tool == "search_web" && targs != null)
-                {
-                    string q = GetString(targs, "query", "");
-                    if (q.Length > 40) q = q.Substring(0, 37) + "...";
-                    summary = "Web: " + q;
-                }
-
-                string project = "";
-                var paths = GetList(root, "workspacePaths");
-                if (paths != null && paths.Count > 0 && paths[0] != null)
-                {
-                    project = Path.GetFileName(paths[0].ToString());
-                }
-                if (string.IsNullOrEmpty(project)) project = Path.GetFileName(Directory.GetCurrentDirectory());
-
-                string stateJson = string.Format(
-                    "{{\"state\":\"working\",\"message\":\"{0}\",\"timestamp\":{1},\"conversation_id\":\"{2}\",\"tool_name\":\"{3}\",\"project\":\"{4}\",\"model\":\"{5}\",\"agent\":\"antigravity\"}}",
-                    MiniJson.Escape(summary), UtcNowSeconds(), MiniJson.Escape(convId), MiniJson.Escape(tool), MiniJson.Escape(project), MiniJson.Escape(modelName)
-                );
-
-                WriteFileAtomic(Path.Combine(SessionsDir, convId + ".json"), stateJson);
+                tool = GetString(tc, "name", "tool");
+                targs = GetDict(tc, "args");
             }
-            catch { }
 
-            Console.WriteLine("{}");
-            return 0;
-        }
-
-        private static int HandleStop(string stdin)
-        {
-            try
+            string summary = "Running " + tool;
+            if (tool == "run_command" && targs != null)
             {
-                var root = MiniJson.Parse(stdin) as Dictionary<string, object>;
-                string convId = GetString(root, "conversationId", "default");
-
-                string stateJson = string.Format(
-                    "{{\"state\":\"review\",\"message\":\"Task completed - Ready for review\",\"timestamp\":{0},\"conversation_id\":\"{1}\",\"agent\":\"antigravity\"}}",
-                    UtcNowSeconds(), MiniJson.Escape(convId)
-                );
-
-                WriteFileAtomic(Path.Combine(SessionsDir, convId + ".json"), stateJson);
+                string cmd = GetString(targs, "CommandLine", "");
+                if (cmd.Length > 45) cmd = cmd.Substring(0, 42) + "...";
+                summary = "Run: " + cmd;
             }
-            catch { }
+            else if (tool == "view_file" && targs != null)
+            {
+                string p = GetString(targs, "AbsolutePath", "");
+                summary = "Read: " + Path.GetFileName(p);
+            }
+            else if ((tool == "replace_file_content" || tool == "write_to_file") && targs != null)
+            {
+                string p = GetString(targs, "TargetFile", "");
+                summary = "Edit: " + Path.GetFileName(p);
+            }
+            else if (tool == "grep_search" && targs != null)
+            {
+                string q = GetString(targs, "Query", "");
+                if (q.Length > 30) q = q.Substring(0, 27) + "...";
+                summary = "Grep: " + q;
+            }
+            else if (tool == "search_web" && targs != null)
+            {
+                string q = GetString(targs, "query", "");
+                if (q.Length > 30) q = q.Substring(0, 27) + "...";
+                summary = "Web: " + q;
+            }
 
-            Console.WriteLine("{}");
-            return 0;
-        }
+            string stateJson = string.Format(
+                "{{\"state\":\"working\",\"message\":\"{0}\",\"timestamp\":{1},\"conversation_id\":\"{2}\",\"tool_name\":\"{3}\",\"project\":\"{4}\",\"model\":\"{5}\",\"agent\":\"antigravity\"}}",
+                MiniJson.Escape(summary), UtcNowSeconds(), MiniJson.Escape(convId), MiniJson.Escape(tool), MiniJson.Escape(project), MiniJson.Escape(modelName)
+            );
 
-        private static int HandleApprovalGate(string stdin)
-        {
+            BroadcastState(convId, stateJson);
+
+            // PreToolUse contract requires a decision
             Console.WriteLine("{\"decision\":\"allow\"}");
+            return 0;
+        }
+
+        private static int HandlePostToolUse(Dictionary<string, object> root, string convId, string modelName, string project)
+        {
+            string err = GetString(root, "error", "");
+            if (!string.IsNullOrEmpty(err))
+            {
+                string stateJson = string.Format(
+                    "{{\"state\":\"error\",\"message\":\"Tool failed: {0}\",\"timestamp\":{1},\"conversation_id\":\"{2}\",\"project\":\"{3}\",\"model\":\"{4}\",\"agent\":\"antigravity\"}}",
+                    MiniJson.Escape(err), UtcNowSeconds(), MiniJson.Escape(convId), MiniJson.Escape(project), MiniJson.Escape(modelName)
+                );
+                BroadcastState(convId, stateJson);
+            }
+
+            Console.WriteLine("{}");
+            return 0;
+        }
+
+        private static int HandleStop(string convId, string modelName, string project)
+        {
+            string stateJson = string.Format(
+                "{{\"state\":\"review\",\"message\":\"Task completed - Ready for review\",\"timestamp\":{0},\"conversation_id\":\"{1}\",\"project\":\"{2}\",\"model\":\"{3}\",\"agent\":\"antigravity\"}}",
+                UtcNowSeconds(), MiniJson.Escape(convId), MiniJson.Escape(project), MiniJson.Escape(modelName)
+            );
+
+            BroadcastState(convId, stateJson);
+            Console.WriteLine("{}");
             return 0;
         }
     }
