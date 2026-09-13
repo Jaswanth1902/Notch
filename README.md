@@ -18,6 +18,19 @@ An ultra-lightweight, hardware-accelerated **Dynamic Island & Ambient Agent HUD*
 
 ---
 
+## 💡 Origin Story: Why Notch?
+
+Desktop Dynamic Islands and ambient HUDs have flourished on macOS (*Boring Notch*, *NotchNook*, *Isle*). But Windows users were completely left behind — stranded with either clunky system tray icons or bloated Electron wrappers that hog 200MB+ of RAM just to show a status badge.
+
+I built **Notch** from scratch as a sovereign solo developer tool: the first native, screen-flush OLED Dynamic Island and Agent HUD engineered specifically for Windows 11. By pairing hardware-accelerated WPF with a low-level C# Win32 keyboard hook, Notch achieves:
+- **0.0% Idle CPU**
+- **<25 MB RAM** (10x lighter than Electron)
+- **Zero Alt-Tab Pollution** via `WS_EX_TOOLWINDOW`
+- **Global Zero-Focus Approval** via `Shift+Enter`
+- **Universal AI Agent Hook** (Claude Code, Cursor, Aider, Antigravity)
+
+---
+
 ## ⚡ Key Highlights
 
 - **Zero Window Interference**: Uses `WS_EX_TOOLWINDOW` and `WS_EX_NOACTIVATE` — never steals focus from your active IDE, terminal, or browser.
