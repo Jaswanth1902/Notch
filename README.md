@@ -5,16 +5,9 @@
 [![Memory](https://img.shields.io/badge/Memory-%3C25%20MB-brightgreen?style=flat-square)](https://github.com/Jaswanth1902/Notch)
 [![Idle CPU](https://img.shields.io/badge/Idle%20CPU-0.0%25-brightgreen?style=flat-square)](https://github.com/Jaswanth1902/Notch)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/Security-Policy%20Active-brightgreen?style=flat-square)](SECURITY.md)
 
 An ultra-lightweight, hardware-accelerated **Dynamic Island & Ambient Agent HUD** designed specifically for Windows 11. Built with native PowerShell/WPF and a low-level C# Win32 hook, **Notch** sits flush at the top edge of your primary display, rendering real-time AI agent status without stealing window focus or polluting your Alt-Tab queue.
-
-```
-       ┌────────────────────────────────────────────────────────┐
-       │   ✦ WORKING   [task-observer]   Running lint... (1.2s) │
-       └────────────────────────────────────────────────────────┘
-                                 ▲
-               28px OLED Screen-Flush Dynamic Island
-```
 
 ---
 
@@ -32,6 +25,67 @@ So I dug into native Win32 APIs, hardware-accelerated WPF, and PowerShell to bui
 - **Universal AI Agent Hook** (Claude Code, Cursor, Aider, Antigravity)
 
 This project is my small way of giving back to the community that taught me to code. I hope it makes your everyday Windows desktop experience feel a little more modern and seamless!
+
+---
+
+## 🏗️ Architecture & Interaction Flow
+
+### Data Flow Pipeline
+```mermaid
+flowchart TD
+    subgraph AgentOrTool["External Agent or CLI"]
+        Agent["AI Agent / CLI\n(Claude, Cursor, Script)"]
+        StateWriter["State Writer\n(echo json > ~/.notch/state.json)"]
+    end
+
+    subgraph NotchEngine["Notch Core Engine (PowerShell + Win32)"]
+        FSWatcher["FileSystemWatcher\n(~/.notch/state.json)"]
+        StateManager["State Machine\n(idle, working, thinking, review, attention, error)"]
+        WPFWindow["WPF Hardware-Accelerated Island\n(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)"]
+        BezelSnap["Display Bezel Snap\n(Top-Center Primary Monitor)"]
+        CSHook["C# Win32 Low-Level Keyboard Hook\n(notch-hook.exe / SetWindowsHookEx)"]
+    end
+
+    subgraph UserDesktop["Windows 11 User Environment"]
+        ActiveIDE["Active IDE / Fullscreen Window\n(Focus Remains 100% Intact)"]
+        UserAction["User Presses Shift+Enter System-Wide"]
+    end
+
+    Agent --> StateWriter
+    StateWriter -->|Atomic JSON Write| FSWatcher
+    FSWatcher --> StateManager
+    StateManager --> WPFWindow
+    BezelSnap --> WPFWindow
+    WPFWindow -.->|Ambient Overlay| ActiveIDE
+    
+    UserAction --> CSHook
+    CSHook -->|Approval Signal| StateManager
+    StateManager -->|Light-Splash Animation| WPFWindow
+    StateManager -->|Writes approval to pipe| Agent
+```
+
+### Zero-Focus Interaction Sequence
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant IDE as Active IDE (VS Code)
+    participant Agent as Claude Code / Worker
+    participant Notch as Notch Island (WPF)
+    participant Hook as Win32 Hook (C#)
+
+    Dev->>IDE: Writing code (Cursor active in file)
+    Agent->>Notch: writes {state: "working", tool: "run_tests"}
+    Notch->>Notch: Expands from 180px to 380px (Electric Cyan)
+    Note over IDE,Notch: Zero focus stolen; Dev continues typing uninterrupted
+    Agent->>Notch: writes {state: "attention", message: "Deploy to Prod?"}
+    Notch->>Notch: Ambient Amber Breathing Pulse
+    Dev->>Hook: Presses Shift + Enter
+    Hook->>Notch: Trigger APPROVE
+    Notch->>Notch: Instant Emerald Green Flash
+    Notch->>Agent: Confirms execution gate
+    Agent->>IDE: Completes deployment
+```
 
 ---
 
@@ -58,11 +112,28 @@ This project is my small way of giving back to the community that taught me to c
 
 ---
 
+## 🧩 Skills & Plugins Ecosystem
+
+- **`humanlayer-skills` Integration**: Notch acts as the physical desktop gate for human-in-the-loop approvals.
+- **`open-interpreter` Integration**: Renders desktop automation steps in the ambient pill.
+- **`notch-media` (Roadmap)**: Ambient Spotify / Windows Media transport controls on mouse hover.
+- **`notch-telemetry` (Roadmap)**: Micro-monitor for CPU, RAM, and battery levels.
+
+---
+
+## 🛡️ Security Hardening & Zero-Trust Advice
+
+- **Hook Verification**: The binary `bin/notch-hook.exe` is compiled transparently from `src/notch-hook.cs` using Windows native `csc.exe`. Full source is public and verifiable with published SHA-256 hashes.
+- **Atomic State Writes**: Callers write to `~/.notch/state.json.tmp` and atomic rename to avoid file read locks.
+- **XAML Injection Shielding**: State message strings are sanitized before passing into WPF data templates.
+
+---
+
 ## 🚀 Quickstart
 
 ### Prerequisites
 - Windows 10 (Build 19041+) or Windows 11.
-- PowerShell 5.1+ (installed by default on Windows).
+- PowerShell 5.1+ (built into Windows).
 
 ### 1. Clone & Launch
 ```powershell
@@ -73,9 +144,8 @@ cd Notch
 .\start.bat
 ```
 
-### 2. Verify with Demo Mode
+### 2. Verify with Interactive Demo
 ```powershell
-# Run the interactive state-cycle demo
 powershell -ExecutionPolicy Bypass -File .\test_demo.ps1
 ```
 
@@ -90,7 +160,7 @@ powershell -ExecutionPolicy Bypass -File .\test_demo.ps1
 
 Any agent or background script can update Notch by writing a single JSON payload to `$env:USERPROFILE\.notch\state.json`:
 
-### Example Payload
+### Example JSON Payload
 ```json
 {
   "state": "working",
@@ -102,43 +172,12 @@ Any agent or background script can update Notch by writing a single JSON payload
 }
 ```
 
-### Bash / Zsh / PowerShell One-Liner
-```powershell
-# Update from PowerShell
-@{ state = "working"; message = "Compiling Rust crate..."; tool_name = "cargo" } | ConvertTo-Json | Set-Content "$env:USERPROFILE\.notch\state.json"
-```
-
-```bash
-# Update from WSL / Git Bash
-echo '{"state":"review","message":"All 48 tests passing"}' > "$USERPROFILE/.notch/state.json"
-```
-
 ---
 
-## 🏗️ Architecture
-
-```mermaid
-flowchart TD
-    A["AI Coding Agent<br/>(Claude / Antigravity / Cursor)"] -->|"Write JSON State"| B["~/.notch/state.json"]
-    B -->|"FileSystemWatcher (Sub-millisecond)"| C["Notch WPF Window<br/>(NativeHUD.ps1)"]
-    D["Win32 Global Hook<br/>(bin/notch-hook.exe)"] -->|"Shift+Enter Hook"| C
-    C -->|"Approval Relay"| A
-```
-
-- **`NativeHUD.ps1`**: Pure PowerShell WPF application leveraging `System.Windows.Interop.HwndSource` for window management.
-- **`notch-hook.cs`**: High-performance Win32 keyboard hook compiled via Windows native `csc.exe`.
-
----
-
-## 🛠️ Compiling from Source
-
-Notch includes its own zero-dependency compilation script using the built-in Windows C# compiler:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build.ps1
-```
+## 🏷️ GitHub Topics & Keywords
+`windows11` • `dynamic-island` • `wpf` • `powershell` • `win32` • `csharp` • `agentic-ai` • `claude-code` • `desktop-hud` • `ambient-computing` • `zero-cpu` • `lightweight` • `productivity` • `custom-desktop`
 
 ---
 
 ## 📄 License
-
 Distributed under the [MIT License](LICENSE). Copyright (c) 2026 Jaswanth Reddy.
