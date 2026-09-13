@@ -1,0 +1,9 @@
+# Notch .gitignore
+# Ignore runtime logs and dynamic state
+state.json
+*.log
+*.tmp
+bin/*.pdb
+.vscode/
+.idea/
+*.user
