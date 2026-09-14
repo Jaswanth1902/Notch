@@ -77,22 +77,22 @@ flowchart TD
 sequenceDiagram
     autonumber
     actor Dev as Developer
-    participant IDE as Active IDE (VS Code)
-    participant Agent as Claude Code / Worker
-    participant Notch as Notch Island (WPF)
-    participant Hook as Win32 Hook (C#)
+    participant IDE as Active IDE
+    participant Agent as AI Coding Agent
+    participant Notch as Notch Dynamic Island
+    participant Hook as Win32 Keyboard Hook
 
-    Dev->>IDE: Writing code (Cursor active in file)
-    Agent->>Notch: writes {state: "working", tool: "run_tests"}
-    Notch->>Notch: Expands from 180px to 380px (Electric Cyan)
-    Note over IDE,Notch: Zero focus stolen; Dev continues typing uninterrupted
-    Agent->>Notch: writes {state: "attention", message: "Deploy to Prod?"}
-    Notch->>Notch: Ambient Amber Breathing Pulse
-    Dev->>Hook: Presses Shift + Enter
-    Hook->>Notch: Trigger APPROVE
-    Notch->>Notch: Instant Emerald Green Flash
-    Notch->>Agent: Confirms execution gate
-    Agent->>IDE: Completes deployment
+    Dev->>IDE: Writing code (cursor active in editor)
+    Agent->>Notch: State update: working [tool: run_tests]
+    Notch->>Notch: Expands from 180px to 380px (Electric Blue)
+    Note over IDE,Notch: Zero focus stolen - developer typing uninterrupted
+    Agent->>Notch: State update: attention [Deploy to Prod]
+    Notch->>Notch: Ambient Amber breathing pulse
+    Dev->>Hook: Presses Shift + Enter (system-wide)
+    Hook->>Notch: Triggers APPROVE signal
+    Notch->>Notch: Instant Emerald Green flash
+    Notch->>Agent: Confirms execution gate approved
+    Agent->>IDE: Resumes task and completes deployment
 ```
 
 ---
