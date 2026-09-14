@@ -1444,6 +1444,12 @@ namespace Notch
                         int pPid = 0;
                         int.TryParse(pidStr, out pPid);
 
+                        string src = ExtractJson(c, "source", "");
+                        if (src.Contains("herdr") || id.StartsWith("pane_"))
+                        {
+                            actor = "HERDR // " + actor;
+                        }
+
                         list.Add(new SessionItem
                         {
                             Id = id,
@@ -1562,6 +1568,11 @@ namespace Notch
                                         string tool = ExtractJson(line, "tool", "Command execution");
                                         string actor = ExtractJson(line, "actor", "Agent");
                                         string diff = ExtractJson(line, "diff", "");
+                                        string source = ExtractJson(line, "source", "");
+                                        if (source.Contains("doberman") || line.Contains("doberman"))
+                                        {
+                                            actor = "DOBERMAN // " + actor;
+                                        }
 
                                         var tcs = new TaskCompletionSource<string>();
                                         _currentGateTcs = tcs;
@@ -1740,8 +1751,13 @@ namespace Notch
                         {
                             string content = File.ReadAllText(files[0]);
                             string cmd = ExtractJson(content, "summary", ExtractJson(content, "tool", "Command"));
-                            string conv = ExtractJson(content, "conversation_id", "Agent");
+                            string conv = ExtractJson(content, "conversation_id", ExtractJson(content, "actor", "Agent"));
                             string diff = ExtractJson(content, "diff", "");
+                            string src = ExtractJson(content, "source", "");
+                            if (src.Contains("doberman") || content.Contains("doberman"))
+                            {
+                                conv = "DOBERMAN // " + conv;
+                            }
                             _activeConvId = conv;
                             if (_currentState != "attention")
                             {
