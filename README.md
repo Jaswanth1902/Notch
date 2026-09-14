@@ -11,6 +11,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy%20Active-brightgreen?style=flat-square)](SECURITY.md)
 
+> **Stop Alt-Tabbing just to check if your AI agent or build finished running.**  
+> Notch brings macOS-grade Dynamic Island polish to Windows 11—floating silently at the top of your screen to stream live background agent status and let you approve tool actions with a single keystroke (`Shift+Enter`) without ever stealing your editor focus or eating your RAM (<25MB).
+
 <p align="center">
   <img src="assets/notch_quickstart.gif" alt="Notch Dynamic Island Quickstart Demo" width="95%" />
 </p>
