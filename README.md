@@ -11,6 +11,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy%20Active-brightgreen?style=flat-square)](SECURITY.md)
 
+<p align="center">
+  <img src="assets/notch_quickstart.gif" alt="Notch Dynamic Island Quickstart Demo" width="95%" />
+</p>
+
 An ultra-lightweight, hardware-accelerated **Dynamic Island & Ambient Agent HUD** designed specifically for Windows 11. Built with native PowerShell/WPF and a low-level C# Win32 hook, **Notch** sits flush at the top edge of your primary display, rendering real-time AI agent status without stealing window focus or polluting your Alt-Tab queue.
 
 ---
