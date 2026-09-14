@@ -266,16 +266,43 @@ namespace Notch.HUD
             }
         }
 
+        private static bool TrySendNamedPipe(string payload, out string response, int timeoutMs = 80)
+        {
+            response = "";
+            try
+            {
+                using (var pipe = new System.IO.Pipes.NamedPipeClientStream(".", "notch_ipc", System.IO.Pipes.PipeDirection.InOut))
+                {
+                    pipe.Connect(timeoutMs);
+                    using (var writer = new StreamWriter(pipe, new UTF8Encoding(false)))
+                    using (var reader = new StreamReader(pipe, Encoding.UTF8))
+                    {
+                        writer.WriteLine(payload);
+                        writer.Flush();
+                        response = reader.ReadLine();
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static void BroadcastState(string convId, string stateJson)
         {
             EnsureDirs();
-            // 1. Write to sessions/<convId>.json
+            // Fast Path: Direct Win32 Named Pipe to NotchCore Daemon (<0.2ms)
+            string pipeResp;
+            TrySendNamedPipe(stateJson, out pipeResp, 60);
+
+            // Resilient Fallback Spool
             if (!string.IsNullOrEmpty(convId))
             {
                 WriteFileAtomic(Path.Combine(AgySessions, convId + ".json"), stateJson);
                 WriteFileAtomic(Path.Combine(NotchSessions, convId + ".json"), stateJson);
             }
-            // 2. Write to primary state.json
             WriteFileAtomic(AgyState, stateJson);
             WriteFileAtomic(NotchState, stateJson);
         }
