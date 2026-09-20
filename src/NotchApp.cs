@@ -1592,16 +1592,24 @@ namespace Notch
             }
             try
             {
-                string spool = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch");
-                string decDir = Path.Combine(spool, "decisions");
-                string pendDir = Path.Combine(spool, "pending");
-                if (Directory.Exists(pendDir))
+                string[] spools = new string[]
                 {
-                    foreach (var f in Directory.GetFiles(pendDir, "*.json"))
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud")
+                };
+                foreach (var spool in spools)
+                {
+                    string decDir = Path.Combine(spool, "decisions");
+                    string pendDir = Path.Combine(spool, "pending");
+                    if (Directory.Exists(pendDir))
                     {
-                        string name = Path.GetFileName(f);
-                        File.WriteAllText(Path.Combine(decDir, name), "{\"decision\":\"allow\"}");
-                        File.Delete(f);
+                        if (!Directory.Exists(decDir)) Directory.CreateDirectory(decDir);
+                        foreach (var f in Directory.GetFiles(pendDir, "*.json"))
+                        {
+                            string name = Path.GetFileName(f);
+                            File.WriteAllText(Path.Combine(decDir, name), "{\"decision\":\"allow\"}");
+                            try { File.Delete(f); } catch { }
+                        }
                     }
                 }
             }
@@ -1624,16 +1632,24 @@ namespace Notch
             }
             try
             {
-                string spool = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch");
-                string decDir = Path.Combine(spool, "decisions");
-                string pendDir = Path.Combine(spool, "pending");
-                if (Directory.Exists(pendDir))
+                string[] spools = new string[]
                 {
-                    foreach (var f in Directory.GetFiles(pendDir, "*.json"))
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud")
+                };
+                foreach (var spool in spools)
+                {
+                    string decDir = Path.Combine(spool, "decisions");
+                    string pendDir = Path.Combine(spool, "pending");
+                    if (Directory.Exists(pendDir))
                     {
-                        string name = Path.GetFileName(f);
-                        File.WriteAllText(Path.Combine(decDir, name), "{\"decision\":\"deny\"}");
-                        File.Delete(f);
+                        if (!Directory.Exists(decDir)) Directory.CreateDirectory(decDir);
+                        foreach (var f in Directory.GetFiles(pendDir, "*.json"))
+                        {
+                            string name = Path.GetFileName(f);
+                            File.WriteAllText(Path.Combine(decDir, name), "{\"decision\":\"deny\"}");
+                            try { File.Delete(f); } catch { }
+                        }
                     }
                 }
             }
@@ -1667,10 +1683,14 @@ namespace Notch
                                 string line = r.ReadLine();
                                 if (!string.IsNullOrEmpty(line))
                                 {
-                                    if (line.Contains("\"mode\":\"approval-gate\"") || line.Contains("\"gate\""))
+                                    string lineMode = ExtractJson(line, "mode", ExtractJson(line, "action", ExtractJson(line, "type", ""))).ToLowerInvariant();
+                                    if (lineMode.Contains("gate") || lineMode.Contains("approval") || line.ToLowerInvariant().Contains("approval-gate") || line.ToLowerInvariant().Contains("\"gate\""))
                                     {
                                         string tool = ExtractJson(line, "tool", "Command execution");
-                                        string actor = ExtractJson(line, "actor", "Agent");
+                                        string cmd = ExtractJson(line, "cmd", ExtractJson(line, "command", ExtractJson(line, "CommandLine", "")));
+                                        string summary = ExtractJson(line, "summary", "");
+                                        string detail = ExtractJson(line, "detail", "");
+                                        string actor = ExtractJson(line, "actor", ExtractJson(line, "agent", "Agent"));
                                         string diff = ExtractJson(line, "diff", "");
                                         string source = ExtractJson(line, "source", "");
                                         if (source.Contains("doberman") || line.Contains("doberman"))
@@ -1691,7 +1711,11 @@ namespace Notch
                                             catch { }
                                         }
 
-                                        bool isDestructive = IsDestructiveCommand(tool) || IsDestructiveCommand(diff);
+                                        bool isDestructive = IsDestructiveCommand(tool) ||
+                                                             IsDestructiveCommand(cmd) ||
+                                                             IsDestructiveCommand(summary) ||
+                                                             IsDestructiveCommand(detail) ||
+                                                             IsDestructiveCommand(diff);
                                         if (isAuto && !isDestructive)
                                         {
                                             w.WriteLine("{\"decision\":\"allow\"}");
@@ -1704,7 +1728,8 @@ namespace Notch
 
                                         Dispatcher.Invoke(new Action(() =>
                                         {
-                                            TransitionState("attention", actor, tool, tool, diff);
+                                            string displayCmd = !string.IsNullOrEmpty(cmd) ? cmd : (!string.IsNullOrEmpty(summary) ? summary : tool);
+                                            TransitionState("attention", actor, displayCmd, displayCmd, diff);
                                         }));
 
                                         if (tcs.Task.Wait(120000))
@@ -1761,6 +1786,26 @@ namespace Notch
                                         string st = ExtractJson(line, "state", "working");
                                         string tool = ExtractJson(line, "tool_name", ExtractJson(line, "tool", ""));
                                         string actor = ExtractJson(line, "agent", ExtractJson(line, "actor", "Claude"));
+
+                                        if (st == "attention")
+                                        {
+                                            bool isAuto = _isAutoMode;
+                                            if (!isAuto)
+                                            {
+                                                try
+                                                {
+                                                    string flagN = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch", "auto_mode.flag");
+                                                    string flagA = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud", "auto_mode.flag");
+                                                    isAuto = File.Exists(flagN) || File.Exists(flagA);
+                                                }
+                                                catch { }
+                                            }
+                                            if (isAuto && !IsDestructiveCommand(tool))
+                                            {
+                                                st = "working";
+                                                tool = "Auto-Allowed: " + (string.IsNullOrEmpty(tool) ? "Action" : tool);
+                                            }
+                                        }
 
                                         Dispatcher.Invoke(new Action(() =>
                                         {
@@ -1877,51 +1922,101 @@ namespace Notch
                         }
                     }
 
-                    // 3. Spool Directory Poll
-                    string spool = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch");
-                    string pendDir = Path.Combine(spool, "pending");
-                    if (Directory.Exists(pendDir))
+                    // 3. Spool Directory Poll across BOTH .notch and .agy-hud
+                    string[] spools = new string[]
                     {
-                        var files = Directory.GetFiles(pendDir, "*.json");
-                        if (files.Length > 0)
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud")
+                    };
+
+                    bool anyFlagExists = false;
+                    foreach (var sRoot in spools)
+                    {
+                        if (File.Exists(Path.Combine(sRoot, "auto_mode.flag")))
                         {
-                            string content = File.ReadAllText(files[0]);
-                            string cmd = ExtractJson(content, "summary", ExtractJson(content, "tool", "Command"));
-                            string conv = ExtractJson(content, "conversation_id", ExtractJson(content, "actor", "Agent"));
-                            string diff = ExtractJson(content, "diff", "");
-                            string src = ExtractJson(content, "source", "");
-                            if (src.Contains("doberman") || content.Contains("doberman"))
-                            {
-                                conv = "DOBERMAN // " + conv;
-                            }
-                            _activeConvId = conv;
-
-                            bool isAuto = _isAutoMode || File.Exists(Path.Combine(spool, "auto_mode.flag"));
-                            bool isDestructive = IsDestructiveCommand(cmd) || IsDestructiveCommand(diff);
-
-                            if (isAuto && !isDestructive)
-                            {
-                                string decDir = Path.Combine(spool, "decisions");
-                                if (!Directory.Exists(decDir)) Directory.CreateDirectory(decDir);
-                                string name = Path.GetFileName(files[0]);
-                                File.WriteAllText(Path.Combine(decDir, name), "{\"decision\":\"allow\"}");
-                                try { File.Delete(files[0]); } catch { }
-                            }
-                            else if (_currentState != "attention")
-                            {
-                                TransitionState("attention", conv, cmd, cmd, diff);
-                                return;
-                            }
+                            anyFlagExists = true;
+                            break;
                         }
                     }
 
-                    string stateFile = Path.Combine(spool, "state.json");
+                    // Keep _isAutoMode in sync with physical flag files
+                    if (_isAutoMode != anyFlagExists)
+                    {
+                        _isAutoMode = anyFlagExists;
+                        UpdateAutoBadgeState();
+                    }
+
+                    bool hasUnresolvedAttention = false;
+
+                    foreach (var sRoot in spools)
+                    {
+                        string pendDir = Path.Combine(sRoot, "pending");
+                        if (!Directory.Exists(pendDir)) continue;
+
+                        var files = Directory.GetFiles(pendDir, "*.json");
+                        foreach (var f in files)
+                        {
+                            try
+                            {
+                                string content = File.ReadAllText(f);
+                                string cmd = ExtractJson(content, "cmd", ExtractJson(content, "command", ExtractJson(content, "CommandLine", "")));
+                                string summary = ExtractJson(content, "summary", "");
+                                string detail = ExtractJson(content, "detail", "");
+                                string tool = ExtractJson(content, "tool", "Command");
+                                string conv = ExtractJson(content, "conversation_id", ExtractJson(content, "actor", "Agent"));
+                                string diff = ExtractJson(content, "diff", "");
+                                string src = ExtractJson(content, "source", "");
+                                if (src.Contains("doberman") || content.Contains("doberman"))
+                                {
+                                    conv = "DOBERMAN // " + conv;
+                                }
+                                _activeConvId = conv;
+
+                                bool isDestructive = IsDestructiveCommand(cmd) ||
+                                                     IsDestructiveCommand(summary) ||
+                                                     IsDestructiveCommand(detail) ||
+                                                     IsDestructiveCommand(tool) ||
+                                                     IsDestructiveCommand(diff);
+
+                                if (_isAutoMode && !isDestructive)
+                                {
+                                    string decDir = Path.Combine(sRoot, "decisions");
+                                    if (!Directory.Exists(decDir)) Directory.CreateDirectory(decDir);
+                                    string name = Path.GetFileName(f);
+                                    File.WriteAllText(Path.Combine(decDir, name), "{\"decision\":\"allow\"}");
+                                    try { File.Delete(f); } catch { }
+                                }
+                                else
+                                {
+                                    hasUnresolvedAttention = true;
+                                    string display = !string.IsNullOrEmpty(cmd) ? cmd : (!string.IsNullOrEmpty(summary) ? summary : tool);
+                                    if (_currentState != "attention")
+                                    {
+                                        TransitionState("attention", conv, display, display, diff);
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+
+                    // If auto mode resolved all pending items and we were in attention state, return to idle
+                    if (_isAutoMode && !hasUnresolvedAttention && _currentState == "attention")
+                    {
+                        TransitionState("idle", "Auto", "Ready");
+                    }
+
+                    string stateFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch", "state.json");
                     if (File.Exists(stateFile) && _currentState != "attention" && _currentState != "ask" && !_isSessionsExpanded)
                     {
                         string content = File.ReadAllText(stateFile);
                         string st = ExtractJson(content, "state", "idle");
                         string tool = ExtractJson(content, "message", ExtractJson(content, "tool_name", ""));
                         string actor = ExtractJson(content, "agent", "Antigravity");
+                        if (st == "attention" && _isAutoMode && !IsDestructiveCommand(tool))
+                        {
+                            st = "working";
+                        }
                         if (st != _currentState)
                         {
                             TransitionState(st, actor, tool);
@@ -1929,7 +2024,7 @@ namespace Notch
                     }
 
                     // 4. Clavis Provider Sync
-                    string clavisFile = Path.Combine(spool, "clavis_state.json");
+                    string clavisFile = Path.Combine(spools[0], "clavis_state.json");
                     if (File.Exists(clavisFile))
                     {
                         try
@@ -1954,14 +2049,20 @@ namespace Notch
         private static string ExtractJson(string json, string key, string fallback)
         {
             if (string.IsNullOrEmpty(json)) return fallback;
-            string pattern = "\"" + key + "\":\"";
-            int idx = json.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0)
+            try
             {
-                int start = idx + pattern.Length;
-                int end = json.IndexOf("\"", start);
-                if (end > start) return json.Substring(start, end - start);
+                var mStr = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"", RegexOptions.IgnoreCase);
+                if (mStr.Success)
+                {
+                    return mStr.Groups[1].Value.Replace("\\\"", "\"").Replace("\\\\", "\\");
+                }
+                var mVal = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*([^,\\s\\}\\]]+)", RegexOptions.IgnoreCase);
+                if (mVal.Success)
+                {
+                    return mVal.Groups[1].Value.Trim();
+                }
             }
+            catch { }
             return fallback;
         }
 
