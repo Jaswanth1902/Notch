@@ -8,7 +8,7 @@
 [![Tech Stack](https://img.shields.io/badge/Stack-PowerShell%20%2B%20WPF%20%2B%20C%23-blueviolet?style=flat-square)](https://github.com/Jaswanth1902/Notch)
 [![Memory](https://img.shields.io/badge/Memory-%3C25%20MB-brightgreen?style=flat-square)](https://github.com/Jaswanth1902/Notch)
 [![Idle CPU](https://img.shields.io/badge/Idle%20CPU-0.0%25-brightgreen?style=flat-square)](https://github.com/Jaswanth1902/Notch)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy%20Active-brightgreen?style=flat-square)](SECURITY.md)
 
 > **Stop Alt-Tabbing just to check if your AI agent or build finished running.**  
@@ -191,4 +191,4 @@ Any agent or background script can update Notch by writing a single JSON payload
 ---
 
 ## 📄 License
-Distributed under the [MIT License](LICENSE). Copyright (c) 2026 Jaswanth Reddy.
+Distributed under the [Apache License 2.0](LICENSE). Copyright (c) 2026 Jaswanth Reddy.
