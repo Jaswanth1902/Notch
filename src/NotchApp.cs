@@ -86,6 +86,23 @@ namespace Notch
         [DllImport("user32.dll")]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+        public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool GetNamedPipeClientProcessId(IntPtr Pipe, out uint ClientProcessId);
 
@@ -333,6 +350,14 @@ namespace Notch
             _screenHeight = SystemParameters.PrimaryScreenHeight;
             _pillCenterX = _screenWidth / 2.0;
 
+            try
+            {
+                string notchFlag = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch", "auto_mode.flag");
+                string agyFlag = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud", "auto_mode.flag");
+                _isAutoMode = File.Exists(notchFlag) || File.Exists(agyFlag);
+            }
+            catch { }
+
             Title = "Notch Dynamic Island HUD";
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
@@ -538,24 +563,31 @@ namespace Notch
                 Padding = new Thickness(6, 2, 6, 2),
                 Cursor = Cursors.Hand
             };
-            _autoBadge.MouseLeftButtonDown += (s, e) =>
-            {
-                e.Handled = true;
-                _isAutoMode = !_isAutoMode;
-                _lblAutoBadge.Text = _isAutoMode ? "AUTO ON" : "SESSIONS";
-                _lblAutoBadge.Foreground = _isAutoMode ? _brushBlue : new SolidColorBrush(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF));
-                ToggleSessionsDrawer();
-            };
 
             _lblAutoBadge = new TextBlock
             {
-                Text = "SESSIONS",
-                Foreground = new SolidColorBrush(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF)),
+                Text = _isAutoMode ? "AUTO ON" : "AUTO",
+                Foreground = _isAutoMode ? _brushBlue : new SolidColorBrush(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF)),
                 FontSize = 9,
                 FontWeight = FontWeights.SemiBold,
                 FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI, sans-serif")
             };
             _autoBadge.Child = _lblAutoBadge;
+
+            _autoBadge.MouseLeftButtonDown += (s, e) =>
+            {
+                e.Handled = true;
+                _isAutoMode = !_isAutoMode;
+                UpdateAutoBadgeState();
+            };
+
+            _autoBadge.MouseRightButtonDown += (s, e) =>
+            {
+                e.Handled = true;
+                ToggleSessionsDrawer();
+            };
+
+            UpdateAutoBadgeState();
 
             rightStack.Children.Add(_clavisPill);
             rightStack.Children.Add(_autoBadge);
@@ -1198,6 +1230,43 @@ namespace Notch
             catch { }
         }
 
+        private void UpdateAutoBadgeState()
+        {
+            try
+            {
+                if (_lblAutoBadge != null)
+                {
+                    _lblAutoBadge.Text = _isAutoMode ? "AUTO ON" : "AUTO";
+                    _lblAutoBadge.Foreground = _isAutoMode ? _brushBlue : new SolidColorBrush(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF));
+                }
+                if (_autoBadge != null)
+                {
+                    _autoBadge.Background = _isAutoMode ? new SolidColorBrush(Color.FromArgb(0x35, 0x3B, 0x82, 0xF6)) : new SolidColorBrush(Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF));
+                    _autoBadge.BorderBrush = _isAutoMode ? _brushBlue : new SolidColorBrush(Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF));
+                }
+
+                string spoolNotch = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch");
+                string spoolAgy = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud");
+                string flagN = Path.Combine(spoolNotch, "auto_mode.flag");
+                string flagA = Path.Combine(spoolAgy, "auto_mode.flag");
+
+                if (_isAutoMode)
+                {
+                    string flagData = "{\"active\":true,\"timestamp\":" + ((long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds) + "}";
+                    if (!Directory.Exists(spoolNotch)) Directory.CreateDirectory(spoolNotch);
+                    if (!Directory.Exists(spoolAgy)) Directory.CreateDirectory(spoolAgy);
+                    File.WriteAllText(flagN, flagData);
+                    File.WriteAllText(flagA, flagData);
+                }
+                else
+                {
+                    if (File.Exists(flagN)) File.Delete(flagN);
+                    if (File.Exists(flagA)) File.Delete(flagA);
+                }
+            }
+            catch { }
+        }
+
         private void OnPillClicked()
         {
             if (_currentState == "review")
@@ -1425,42 +1494,77 @@ namespace Notch
         private List<SessionItem> GetMergedSessions()
         {
             var list = new List<SessionItem>();
-            string spool = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch");
-            string sessDir = Path.Combine(spool, "sessions");
+            string spoolNotch = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch", "sessions");
+            string spoolAgy = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud", "sessions");
+            var dirs = new string[] { spoolNotch, spoolAgy };
+            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            long nowSec = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
 
-            if (Directory.Exists(sessDir))
+            foreach (var sDir in dirs)
             {
-                foreach (var sf in Directory.GetFiles(sessDir, "*.json"))
+                if (Directory.Exists(sDir))
                 {
-                    try
+                    foreach (var sf in Directory.GetFiles(sDir, "*.json"))
                     {
-                        string c = File.ReadAllText(sf);
-                        string st = ExtractJson(c, "state", "idle");
-                        string actor = ExtractJson(c, "agent", ExtractJson(c, "actor", "Claude"));
-                        string proj = ExtractJson(c, "project", "Notch");
-                        string tool = ExtractJson(c, "message", ExtractJson(c, "tool_name", "Executing"));
-                        string id = Path.GetFileNameWithoutExtension(sf);
-                        string pidStr = ExtractJson(c, "pid", "0");
-                        int pPid = 0;
-                        int.TryParse(pidStr, out pPid);
-
-                        string src = ExtractJson(c, "source", "");
-                        if (src.Contains("herdr") || id.StartsWith("pane_"))
+                        try
                         {
-                            actor = "HERDR // " + actor;
+                            string id = Path.GetFileNameWithoutExtension(sf);
+                            string c = File.ReadAllText(sf);
+                            string tsStr = ExtractJson(c, "timestamp", "0");
+                            long ts = 0;
+                            long.TryParse(tsStr, out ts);
+
+                            string pidStr = ExtractJson(c, "pid", "0");
+                            int pPid = 0;
+                            int.TryParse(pidStr, out pPid);
+
+                            // Pruning: remove session if older than 300s (5 minutes) and process is not running
+                            if (ts > 0 && (nowSec - ts > 300))
+                            {
+                                bool isAlive = false;
+                                if (pPid > 0)
+                                {
+                                    try
+                                    {
+                                        var p = Process.GetProcessById(pPid);
+                                        if (!p.HasExited) isAlive = true;
+                                    }
+                                    catch { }
+                                }
+                                if (!isAlive)
+                                {
+                                    try { File.Delete(sf); } catch { }
+                                    continue;
+                                }
+                            }
+
+                            if (seenIds.Contains(id)) continue;
+                            seenIds.Add(id);
+
+                            string st = ExtractJson(c, "state", "idle");
+                            string actor = ExtractJson(c, "agent", ExtractJson(c, "actor", "Claude"));
+                            string proj = ExtractJson(c, "project", "Notch");
+                            string tool = ExtractJson(c, "message", ExtractJson(c, "tool_name", "Executing"));
+
+                            string src = ExtractJson(c, "source", "");
+                            if (src.Contains("herdr") || id.StartsWith("pane_"))
+                            {
+                                actor = "HERDR // " + actor;
+                            }
+
+                            list.Add(new SessionItem
+                            {
+                                Id = id,
+                                Agent = actor,
+                                Project = proj,
+                                Tool = tool,
+                                State = st,
+                                Pid = pPid,
+                                Timestamp = ts
+                            });
                         }
-
-                        list.Add(new SessionItem
-                        {
-                            Id = id,
-                            Agent = actor,
-                            Project = proj,
-                            Tool = tool,
-                            State = st,
-                            Pid = pPid
-                        });
+                        catch { }
                     }
-                    catch { }
                 }
             }
 
@@ -1574,6 +1678,27 @@ namespace Notch
                                             actor = "DOBERMAN // " + actor;
                                         }
 
+                                        // Auto Mode Check: If auto mode is ON and command is not destructive, immediately allow!
+                                        bool isAuto = _isAutoMode;
+                                        if (!isAuto)
+                                        {
+                                            try
+                                            {
+                                                string flagN = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".notch", "auto_mode.flag");
+                                                string flagA = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agy-hud", "auto_mode.flag");
+                                                isAuto = File.Exists(flagN) || File.Exists(flagA);
+                                            }
+                                            catch { }
+                                        }
+
+                                        bool isDestructive = IsDestructiveCommand(tool) || IsDestructiveCommand(diff);
+                                        if (isAuto && !isDestructive)
+                                        {
+                                            w.WriteLine("{\"decision\":\"allow\"}");
+                                            w.Flush();
+                                            continue;
+                                        }
+
                                         var tcs = new TaskCompletionSource<string>();
                                         _currentGateTcs = tcs;
 
@@ -1672,29 +1797,39 @@ namespace Notch
                     bool isFullscreen = false;
                     if (fg != IntPtr.Zero && fg != hwnd)
                     {
-                        Win32.RECT rect;
-                        if (Win32.GetWindowRect(fg, out rect))
+                        IntPtr hMonitor = Win32.MonitorFromWindow(fg, Win32.MONITOR_DEFAULTTONEAREST);
+                        if (hMonitor != IntPtr.Zero)
                         {
-                            int w = rect.Right - rect.Left;
-                            int h = rect.Bottom - rect.Top;
-                            if (w >= _screenWidth && h >= _screenHeight)
+                            var mi = new Win32.MONITORINFO();
+                            mi.cbSize = Marshal.SizeOf(typeof(Win32.MONITORINFO));
+                            if (Win32.GetMonitorInfo(hMonitor, ref mi))
                             {
-                                var sb = new StringBuilder(256);
-                                Win32.GetWindowText(fg, sb, 256);
-                                string title = sb.ToString();
-                                if (title != "Notch Dynamic Island HUD" && !title.Contains("Program Manager"))
+                                Win32.RECT rect;
+                                if (Win32.GetWindowRect(fg, out rect))
                                 {
-                                    isFullscreen = true;
+                                    if (rect.Left <= mi.rcMonitor.Left &&
+                                        rect.Top <= mi.rcMonitor.Top &&
+                                        rect.Right >= mi.rcMonitor.Right &&
+                                        rect.Bottom >= mi.rcMonitor.Bottom)
+                                    {
+                                        var sb = new StringBuilder(256);
+                                        Win32.GetWindowText(fg, sb, 256);
+                                        string title = sb.ToString();
+                                        if (title != "Notch Dynamic Island HUD" && !title.Contains("Program Manager"))
+                                        {
+                                            isFullscreen = true;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    bool isNeededState = (_currentState == "attention" || _currentState == "ask" || _currentState == "review");
+                    bool isAttentionState = (_currentState == "attention" || _currentState == "ask");
 
                     if (isFullscreen)
                     {
-                        if (isNeededState)
+                        if (isAttentionState)
                         {
                             if (_isMinimalLine)
                             {
@@ -1703,7 +1838,8 @@ namespace Notch
                         }
                         else
                         {
-                            if (!_isMinimalLine && !_isManualExpanded)
+                            _isManualExpanded = false;
+                            if (!_isMinimalLine)
                             {
                                 CollapseToMinimalLine();
                             }
@@ -1759,11 +1895,23 @@ namespace Notch
                                 conv = "DOBERMAN // " + conv;
                             }
                             _activeConvId = conv;
-                            if (_currentState != "attention")
+
+                            bool isAuto = _isAutoMode || File.Exists(Path.Combine(spool, "auto_mode.flag"));
+                            bool isDestructive = IsDestructiveCommand(cmd) || IsDestructiveCommand(diff);
+
+                            if (isAuto && !isDestructive)
+                            {
+                                string decDir = Path.Combine(spool, "decisions");
+                                if (!Directory.Exists(decDir)) Directory.CreateDirectory(decDir);
+                                string name = Path.GetFileName(files[0]);
+                                File.WriteAllText(Path.Combine(decDir, name), "{\"decision\":\"allow\"}");
+                                try { File.Delete(files[0]); } catch { }
+                            }
+                            else if (_currentState != "attention")
                             {
                                 TransitionState("attention", conv, cmd, cmd, diff);
+                                return;
                             }
-                            return;
                         }
                     }
 

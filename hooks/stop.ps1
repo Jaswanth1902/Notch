@@ -13,8 +13,8 @@ try {
     $conv_id = if ($j.conversationId) { $j.conversationId } else { "default" }
 
     $state = [ordered]@{
-        state           = "review"
-        message         = "Task completed - Ready for review"
+        state           = "idle"
+        message         = "Ready for instructions"
         timestamp       = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         conversation_id = $conv_id
         agent           = "antigravity"

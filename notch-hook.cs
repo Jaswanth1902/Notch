@@ -489,7 +489,7 @@ namespace Notch.HUD
         private static int HandleStop(string convId, string modelName, string project)
         {
             string stateJson = string.Format(
-                "{{\"state\":\"review\",\"message\":\"Task completed - Ready for review\",\"timestamp\":{0},\"conversation_id\":\"{1}\",\"project\":\"{2}\",\"model\":\"{3}\",\"agent\":\"antigravity\"}}",
+                "{{\"state\":\"idle\",\"message\":\"Ready for instructions\",\"timestamp\":{0},\"conversation_id\":\"{1}\",\"project\":\"{2}\",\"model\":\"{3}\",\"agent\":\"antigravity\"}}",
                 UtcNowSeconds(), MiniJson.Escape(convId), MiniJson.Escape(project), MiniJson.Escape(modelName)
             );
 
