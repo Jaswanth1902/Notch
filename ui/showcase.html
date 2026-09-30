@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notch 2.0 — Dynamic Island Hero Showcase</title>
+  <link rel="stylesheet" href="island.css">
+  <style>
+    /* Showcase Desktop Canvas */
+    body {
+      background: #08080B radial-gradient(circle at 50% 0%, #151621 0%, #08080B 70%);
+      width: 1000px;
+      height: 520px;
+      margin: 0;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    }
+
+    /* Screen Top Bezel */
+    .screen-bezel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 5%, rgba(197, 160, 89, 0.45) 50%, transparent 95%);
+      z-index: 9999;
+    }
+
+    /* Hardware Camera Lens */
+    .hardware-camera {
+      position: absolute;
+      top: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #121216;
+      border: 1px solid #222228;
+      box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.8), 0 0 4px rgba(0, 0, 0, 0.5);
+      z-index: 10001;
+      pointer-events: none;
+    }
+
+    /* Floating Keystroke HUD Indicator */
+    #keystroke-chip {
+      position: absolute;
+      bottom: 34px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: rgba(18, 18, 22, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(197, 160, 89, 0.4);
+      border-radius: 28px;
+      padding: 8px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(197, 160, 89, 0.15);
+      opacity: 0;
+      transition: all 260ms cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 9998;
+      pointer-events: none;
+    }
+
+    #keystroke-chip.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    #keystroke-chip.highlight {
+      border-color: #10B981;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.8), 0 0 28px rgba(16, 185, 129, 0.35);
+    }
+
+    .key-cap {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-bottom: 2px solid rgba(255, 255, 255, 0.28);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #FDFBF7;
+    }
+
+    .key-plus {
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 11px;
+    }
+
+    .key-action {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--gold, #C5A059);
+      letter-spacing: 0.2px;
+    }
+
+    /* Confetti Canvas */
+    #confetti-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 9997;
+    }
+
+    /* Fake Cursor */
+    #fake-cursor {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      pointer-events: none;
+      z-index: 10002;
+      opacity: 0;
+      transition: opacity 200ms ease;
+      transform: translate(-2px, -2px);
+    }
+  </style>
+</head>
+<body>
+  <div class="screen-bezel"></div>
+  <div class="hardware-camera"></div>
+
+  <!-- Simulated Cursor -->
+  <svg id="fake-cursor" viewBox="0 0 24 24" fill="none">
+    <path d="M5.5 3.5L18.5 10.5L12 12.5L10 19L5.5 3.5Z" fill="#FDFBF7" stroke="#101014" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>
+
+  <!-- Confetti Canvas -->
+  <canvas id="confetti-canvas"></canvas>
+
+  <!-- Top 6px invisible wake strip -->
+  <div id="wake-strip"></div>
+
+  <!-- The Main Dynamic Island Pill -->
+  <div id="island">
+    <div id="bot-glow"></div>
+    <canvas id="bot-canvas"></canvas>
+
+    <div id="island-clip">
+      <!-- Compact Bar (Shown only in compact mode) -->
+      <div id="compact-bar">
+        <span class="compact-name" id="compact-name">Notch</span>
+        <span class="compact-dot">·</span>
+        <span class="compact-status" id="compact-status">Standby</span>
+        <span class="compact-badge" id="compact-badge">0.0% CPU</span>
+      </div>
+
+      <!-- Expanded Content -->
+      <div id="content">
+        <!-- Header -->
+        <div id="header">
+          <div class="tabs">
+            <button class="tab on" id="tab-overview">Overview</button>
+            <button class="tab" id="tab-fleet">Agents</button>
+          </div>
+          <div class="header-actions">
+            <button class="icon-btn" id="btn-sound" title="Toggle Sound">🔊</button>
+            <button class="icon-btn" id="btn-close-overview" title="Collapse">✕</button>
+          </div>
+        </div>
+
+        <!-- Views Container -->
+        <div id="views">
+          <!-- Overview View -->
+          <div class="view on" id="view-overview">
+            <div class="card">
+              <div class="who-row">
+                <span class="n" id="session-actor">Claude Code</span>
+                <span id="session-status">Running Task · Step 14/16</span>
+              </div>
+              <div class="title" id="session-title">Refactoring AST Symbols & Release Build</div>
+              <div class="sub" id="session-metrics">CPU: 1.2% · RAM: 22MB · Low Latency Pipe</div>
+            </div>
+          </div>
+
+          <!-- Human-in-the-Loop Approval View -->
+          <div class="view" id="view-approval">
+            <div class="card wash-amber">
+              <div class="who-row">
+                <span class="n" id="approval-actor">Claude Code</span>
+                <span>requests tool authorization</span>
+              </div>
+              <div class="title" id="approval-title">Execute Shell Command</div>
+              <div class="code" id="approval-code">git push origin main --tags</div>
+              <div class="actions">
+                <button class="btn secondary" id="btn-deny">
+                  <span>Deny</span>
+                  <span class="kbd">Esc</span>
+                </button>
+                <button class="btn primary" id="btn-allow">
+                  <span>Allow</span>
+                  <span class="kbd">Shift+Enter</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Session Finished View -->
+          <div class="view" id="view-finished">
+            <div class="card wash-green">
+              <div class="who-row">
+                <span class="n">Autonomous Execution</span>
+                <span>Approval Granted & Verified</span>
+              </div>
+              <div class="title">All Tests & CI Gates Passed</div>
+              <div class="sub">Pushed to main · 0 errors · Ready for developer</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auto-close countdown line -->
+    <div id="countdown"></div>
+  </div>
+
+  <!-- Keystroke Chip Overlay -->
+  <div id="keystroke-chip">
+    <span class="key-cap">⇧ Shift</span>
+    <span class="key-plus">+</span>
+    <span class="key-cap">↵ Enter</span>
+    <span class="key-action" id="keystroke-action">Approve Tool Action</span>
+  </div>
+
+  <script type="module">
+    import { IslandController } from "./island.js";
+    import { Sound } from "./sound.js";
+
+    window.island = new IslandController();
+
+    // Particle Confetti Generator
+    const confettiCanvas = document.getElementById("confetti-canvas");
+    const cctx = confettiCanvas.getContext("2d");
+    let particles = [];
+
+    function resizeConfetti() {
+      confettiCanvas.width = window.innerWidth;
+      confettiCanvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resizeConfetti);
+    resizeConfetti();
+
+    window.triggerConfetti = function() {
+      const colors = ["#C5A059", "#10B981", "#38BDF8", "#F59E0B", "#FDFBF7"];
+      const originX = window.innerWidth / 2;
+      const originY = 120;
+      for (let i = 0; i < 48; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 6 + 2;
+        particles.push({
+          x: originX,
+          y: originY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 2,
+          size: Math.random() * 5 + 3,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          alpha: 1,
+          rot: Math.random() * 360,
+          vrot: (Math.random() - 0.5) * 12
+        });
+      }
+    };
+
+    function renderConfetti() {
+      cctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.15; // gravity
+        p.rot += p.vrot;
+        p.alpha -= 0.016;
+
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        cctx.save();
+        cctx.translate(p.x, p.y);
+        cctx.rotate((p.rot * Math.PI) / 180);
+        cctx.globalAlpha = p.alpha;
+        cctx.fillStyle = p.color;
+        cctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.7);
+        cctx.restore();
+      }
+      requestAnimationFrame(renderConfetti);
+    }
+    requestAnimationFrame(renderConfetti);
+
+    // Cursor movement helper
+    const fakeCursor = document.getElementById("fake-cursor");
+    window.setCursor = function(x, y, visible = true) {
+      fakeCursor.style.opacity = visible ? "1" : "0";
+      fakeCursor.style.left = `${x}px`;
+      fakeCursor.style.top = `${y}px`;
+
+      // Dispatch mousemove to island controller so Mochi tracks the gaze!
+      window.dispatchEvent(new MouseEvent("mousemove", {
+        clientX: x,
+        clientY: y
+      }));
+    };
+
+    // Showcase Scenario Runner
+    window.setScenarioState = function(stateName, payload = {}) {
+      const chip = document.getElementById("keystroke-chip");
+      const chipAction = document.getElementById("keystroke-action");
+      const compactStatus = document.getElementById("compact-status");
+      const compactBadge = document.getElementById("compact-badge");
+
+      if (stateName === "idle") {
+        window.island.setMode("compact");
+        window.island.engine.setState("idle");
+        if (compactStatus) compactStatus.innerText = "Standby";
+        if (compactBadge) compactBadge.innerText = "0.0% CPU";
+        chip.classList.remove("visible", "highlight");
+      }
+      else if (stateName === "working") {
+        window.island.setMode("compact");
+        window.island.engine.setState("working");
+        if (compactStatus) compactStatus.innerText = "Claude Code: Refactoring AST...";
+        if (compactBadge) compactBadge.innerText = "BUSY";
+        chip.classList.remove("visible", "highlight");
+      }
+      else if (stateName === "approval") {
+        window.island.triggerApproval({
+          tool: payload.tool || "Execute Shell Command",
+          command: payload.command || "git push origin main --tags",
+          actor: payload.actor || "Claude Code"
+        });
+        chip.classList.add("visible");
+        chip.classList.remove("highlight");
+        if (chipAction) chipAction.innerText = "Press Shift+Enter to Authorize";
+      }
+      else if (stateName === "approve_pressed") {
+        chip.classList.add("visible", "highlight");
+        if (chipAction) chipAction.innerText = "✓ Authorized via Shift+Enter";
+        window.island.setView("finished");
+        window.island.engine.setState("finished");
+        window.island.engine.triggerEmote("love");
+        window.triggerConfetti();
+      }
+      else if (stateName === "collapse_idle") {
+        chip.classList.remove("visible", "highlight");
+        window.island.engine.setState("idle");
+        window.island.setMode("compact");
+        if (compactStatus) compactStatus.innerText = "Task Complete · Standby";
+        if (compactBadge) compactBadge.innerText = "0.0% CPU";
+      }
+    };
+  </script>
+</body>
+</html>

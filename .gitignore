@@ -7,3 +7,7 @@ bin/*.pdb
 .vscode/
 .idea/
 *.user
+__pycache__/
+*.pyc
+temp_video_rec/
+temp_frames/

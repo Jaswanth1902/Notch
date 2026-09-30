@@ -227,21 +227,57 @@ namespace Notch.Core
             _sessionManager.OnStateChanged += BroadcastStateToSse;
         }
 
+        public static string GetUserPipeName()
+        {
+            string sid = "user";
+            try
+            {
+                var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+                if (identity != null && identity.User != null) sid = identity.User.Value;
+                else sid = Environment.UserName;
+            }
+            catch { sid = Environment.UserName; }
+            return "notch-" + sid;
+        }
+
         public void Start()
         {
-            Console.WriteLine("[NotchCore] Initializing High-Performance Native Daemon...");
+            Console.WriteLine("[NotchCore] Initializing High-Performance Native Daemon (Coucou & Antigravity Mesh)...");
             
-            // 1. Start Named Pipe Listener Thread
-            var pipeThread = new Thread(RunPipeServer) { IsBackground = true };
-            pipeThread.Start();
+            // 1. Start Named Pipe Listener Threads (legacy notch_ipc and user-isolated notch-<sid>)
+            var pipeThread1 = new Thread(() => RunPipeServer(PipeName)) { IsBackground = true };
+            pipeThread1.Start();
+            var pipeThread2 = new Thread(() => RunPipeServer(GetUserPipeName())) { IsBackground = true };
+            pipeThread2.Start();
 
             // 2. Start HTTP / SSE Bridge Server
             var httpThread = new Thread(RunHttpServer) { IsBackground = true };
             httpThread.Start();
 
             // 3. Start Global Hotkey Message Loop
-            Console.WriteLine("[NotchCore] Services online: Named Pipe '\\\\.\\pipe\\notch_ipc' and HTTP '127.0.0.1:" + HttpPort + "'");
+            Console.WriteLine("[NotchCore] Services online: Pipes '\\\\.\\pipe\\notch_ipc' & '\\\\.\\pipe\\" + GetUserPipeName() + "' | HTTP '127.0.0.1:" + HttpPort + "'");
             RunHotkeyLoop();
+        }
+
+        private void BroadcastRawSse(string payload)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(payload);
+            lock (_sseLock)
+            {
+                for (int i = _sseSubscribers.Count - 1; i >= 0; i--)
+                {
+                    var res = _sseSubscribers[i];
+                    try
+                    {
+                        res.OutputStream.Write(bytes, 0, bytes.Length);
+                        res.OutputStream.Flush();
+                    }
+                    catch
+                    {
+                        _sseSubscribers.RemoveAt(i);
+                    }
+                }
+            }
         }
 
         private void BroadcastStateToSse(string state)
@@ -268,39 +304,22 @@ namespace Notch.Core
             sb.Append("]}");
 
             string payload = "data: " + sb.ToString() + "\n\n";
-            byte[] bytes = Encoding.UTF8.GetBytes(payload);
-
-            lock (_sseLock)
-            {
-                for (int i = _sseSubscribers.Count - 1; i >= 0; i--)
-                {
-                    var res = _sseSubscribers[i];
-                    try
-                    {
-                        res.OutputStream.Write(bytes, 0, bytes.Length);
-                        res.OutputStream.Flush();
-                    }
-                    catch
-                    {
-                        _sseSubscribers.RemoveAt(i);
-                    }
-                }
-            }
+            BroadcastRawSse(payload);
         }
 
-        private void RunPipeServer()
+        private void RunPipeServer(string pipeName)
         {
             while (_running)
             {
                 try
                 {
-                    using (var pipe = new NamedPipeServerStream(PipeName, PipeDirection.InOut, 10, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+                    using (var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
                     {
                         pipe.WaitForConnection();
                         HandlePipeClient(pipe);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     if (!_running) break;
                     Thread.Sleep(50);
@@ -318,13 +337,15 @@ namespace Notch.Core
                     string line = reader.ReadLine();
                     if (string.IsNullOrEmpty(line)) return;
 
-                    // Parse mini JSON commands
-                    if (line.Contains("\"mode\":\"approval-gate\"") || line.Contains("\"gate\""))
+                    // Parse mini JSON commands & check for approval gates or Claude Code PermissionRequest
+                    bool isApproval = line.Contains("\"mode\":\"approval-gate\"") || line.Contains("\"gate\"") || line.Contains("PermissionRequest");
+                    if (isApproval)
                     {
-                        string id = ExtractJsonValue(line, "conversationId", Guid.NewGuid().ToString("N"));
-                        string tool = ExtractJsonValue(line, "tool", "tool");
+                        string id = ExtractJsonValue(line, "conversationId", ExtractJsonValue(line, "request_id", Guid.NewGuid().ToString("N").Substring(0, 12)));
+                        string tool = ExtractJsonValue(line, "tool", ExtractJsonValue(line, "tool_name", "tool"));
                         string proj = ExtractJsonValue(line, "project", "Project");
                         string actor = ExtractJsonValue(line, "actor", "Agent");
+                        string cmd = ExtractJsonValue(line, "command", ExtractJsonValue(line, "summary", tool));
 
                         var sess = new AgentSession
                         {
@@ -337,15 +358,26 @@ namespace Notch.Core
                         };
                         _sessionManager.UpdateSession(sess);
 
+                        // Broadcast approval event to SSE so Mochi Dynamic Island pops up
+                        string sseEvent = string.Format("data: {{\"type\":\"approval\",\"mode\":\"approval-gate\",\"requestId\":\"{0}\",\"actor\":\"{1}\",\"tool\":\"{2}\",\"command\":\"{3}\"}}\n\n", id, Escape(actor), Escape(tool), Escape(cmd));
+                        BroadcastRawSse(sseEvent);
+
                         // Block until approved or timed out
                         var task = _sessionManager.RegisterGate(id);
-                        if (task.Wait(120000)) // 2 min SLA
+                        string decision = "allow";
+                        if (task.Wait(110000))
                         {
-                            writer.WriteLine("{\"decision\":\"" + task.Result + "\"}");
+                            decision = task.Result;
+                        }
+
+                        // Bare word for Claude Code/Coucou relay, JSON for Antigravity spool
+                        if (line.Contains("PermissionRequest"))
+                        {
+                            writer.WriteLine(decision);
                         }
                         else
                         {
-                            writer.WriteLine("{\"decision\":\"allow\"}"); // Auto-allow on timeout
+                            writer.WriteLine("{\"decision\":\"" + decision + "\"}");
                         }
                         writer.Flush();
 
@@ -355,11 +387,11 @@ namespace Notch.Core
                     else
                     {
                         // Standard state packet
-                        string id = ExtractJsonValue(line, "conversationId", "default");
+                        string id = ExtractJsonValue(line, "conversationId", ExtractJsonValue(line, "session_id", "default"));
                         string state = ExtractJsonValue(line, "state", "working");
                         string actor = ExtractJsonValue(line, "actor", "Agent");
                         string proj = ExtractJsonValue(line, "project", "Active");
-                        string tool = ExtractJsonValue(line, "tool", "");
+                        string tool = ExtractJsonValue(line, "tool", ExtractJsonValue(line, "hook_event_name", ""));
 
                         _sessionManager.UpdateSession(new AgentSession
                         {
@@ -421,7 +453,7 @@ namespace Notch.Core
 
             string path = req.Url.AbsolutePath.ToLowerInvariant();
 
-            if (path == "/events")
+            if (path == "/events" || path == "/api/events")
             {
                 // Server-Sent Events stream
                 res.ContentType = "text/event-stream";
@@ -442,6 +474,55 @@ namespace Notch.Core
                 res.OutputStream.Flush();
                 // Keep connection open
                 return;
+            }
+
+            if (path == "/api/decision" && req.HttpMethod == "POST")
+            {
+                using (var r = new StreamReader(req.InputStream, req.ContentEncoding))
+                {
+                    string body = r.ReadToEnd();
+                    string reqId = ExtractJsonValue(body, "requestId", "");
+                    string decision = ExtractJsonValue(body, "decision", "allow");
+                    if (!string.IsNullOrEmpty(reqId))
+                    {
+                        _sessionManager.ResolveGate(reqId, decision);
+                    }
+                    else
+                    {
+                        _sessionManager.ResolveAnyGate(decision);
+                    }
+                }
+                SendJson(res, "{\"status\":\"ok\"}");
+                return;
+            }
+
+            // Static file serving for Notch UI
+            if (path == "/" || path == "/index.html" || path.EndsWith(".js") || path.EndsWith(".css") || path.EndsWith(".html") || path.EndsWith(".svg") || path.EndsWith(".png"))
+            {
+                string rel = (path == "/" || path == "/index.html") ? "index.html" : path.TrimStart('/');
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string uiDir = Path.Combine(baseDir, "ui");
+                if (!Directory.Exists(uiDir)) uiDir = Path.Combine(baseDir, "..", "ui");
+                if (!Directory.Exists(uiDir)) uiDir = Path.Combine(baseDir, "..", "..", "ui");
+
+                string file = Path.Combine(uiDir, rel);
+                if (File.Exists(file))
+                {
+                    string ext = Path.GetExtension(file).ToLowerInvariant();
+                    string mime = "text/plain";
+                    if (ext == ".html") mime = "text/html; charset=utf-8";
+                    else if (ext == ".js") mime = "application/javascript; charset=utf-8";
+                    else if (ext == ".css") mime = "text/css; charset=utf-8";
+                    else if (ext == ".svg") mime = "image/svg+xml";
+                    else if (ext == ".png") mime = "image/png";
+
+                    byte[] b = File.ReadAllBytes(file);
+                    res.ContentType = mime;
+                    res.ContentLength64 = b.Length;
+                    res.OutputStream.Write(b, 0, b.Length);
+                    res.Close();
+                    return;
+                }
             }
 
             if (path == "/approve" && req.HttpMethod == "POST")

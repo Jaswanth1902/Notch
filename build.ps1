@@ -5,32 +5,44 @@ if (-not (Test-Path $cscPath)) {
     exit 1
 }
 
-if (-not (Test-Path "bin")) { New-Item -ItemType Directory -Path "bin" | Out-Null }
+$root = $PSScriptRoot
+if (-not $root) { $root = Get-Location }
+
+$binDir = Join-Path $root "bin"
+if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir | Out-Null }
 
 Write-Host "Compiling notch-hook.cs..." -ForegroundColor Cyan
-& $cscPath /target:exe /out:bin\notch-hook.exe /optimize+ notch-hook.cs
+$outHook = "/out:" + (Join-Path $binDir "notch-hook.exe")
+$srcHook = Join-Path $root "notch-hook.cs"
+& $cscPath /target:exe $outHook /optimize+ $srcHook
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Hook compilation failed!" -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-Write-Host "Compiling notch-app.exe..." -ForegroundColor Cyan
-& $cscPath /target:winexe /out:bin\notch-app.exe /optimize+ `
-    /r:C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF\PresentationFramework.dll `
-    /r:C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF\PresentationCore.dll `
-    /r:C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF\WindowsBase.dll `
-    /r:System.Xaml.dll /r:System.dll /r:System.Core.dll `
-    src\NotchApp.cs
-
+Write-Host "Compiling notch-relay.exe..." -ForegroundColor Cyan
+$outRelay = "/out:" + (Join-Path $binDir "notch-relay.exe")
+$srcRelay = Join-Path $root "src\NotchRelay.cs"
+& $cscPath /target:exe $outRelay /optimize+ $srcRelay
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "App compilation failed!" -ForegroundColor Red
+    Write-Host "Relay compilation failed!" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
+Write-Host "Compiling notch-core.exe..." -ForegroundColor Cyan
+$outCore = "/out:" + (Join-Path $binDir "notch-core.exe")
+$srcCore = Join-Path $root "src\NotchCore.cs"
+& $cscPath /target:exe $outCore /optimize+ $srcCore
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "NotchCore compilation failed!" -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
 Write-Host "Binaries compiled successfully. Running regression test suite..." -ForegroundColor Green
-python tests\test_auto_allow_invariants.py
+$testFile = Join-Path $root "tests\test_coucou_notch_integration.py"
+python -m pytest $testFile -v
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "ALL INVARIANTS VERIFIED." -ForegroundColor Green
+    Write-Host "ALL COUCOU & NOTCH INVARIANTS VERIFIED." -ForegroundColor Green
 } else {
     Write-Host "INVARIANT REGRESSION DETECTED." -ForegroundColor Red
     exit $LASTEXITCODE

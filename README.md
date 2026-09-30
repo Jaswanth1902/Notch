@@ -15,7 +15,11 @@
 > Notch brings macOS-grade Dynamic Island polish to Windows 11—floating silently at the top of your screen to stream live background agent status and let you approve tool actions with a single keystroke (`Shift+Enter`) without ever stealing your editor focus or eating your RAM (<25MB).
 
 <p align="center">
-  <img src="assets/notch_quickstart.gif" alt="Notch Dynamic Island Quickstart Demo" width="95%" />
+  <a href="assets/notch_hero.webm">
+    <img src="assets/notch_quickstart.gif" alt="Notch Dynamic Island & Mochi Companion Showcase" width="95%" />
+  </a>
+  <br>
+  <sub>🎬 <em>Click image to watch the 60fps showcase video (<a href="assets/notch_hero.webm"><code>assets/notch_hero.webm</code></a>)</em></sub>
 </p>
 
 An ultra-lightweight, hardware-accelerated **Dynamic Island & Ambient Agent HUD** designed specifically for Windows 11. Built with native PowerShell/WPF and a low-level C# Win32 hook, **Notch** sits flush at the top edge of your primary display, rendering real-time AI agent status without stealing window focus or polluting your Alt-Tab queue.
@@ -129,6 +133,17 @@ sequenceDiagram
 - **`open-interpreter` Integration**: Renders desktop automation steps in the ambient pill.
 - **`notch-media` (Roadmap)**: Ambient Spotify / Windows Media transport controls on mouse hover.
 - **`notch-telemetry` (Roadmap)**: Micro-monitor for CPU, RAM, and battery levels.
+
+---
+
+## 🎨 Absorbed Coucou Capabilities (v2.0 Architecture)
+
+Synthesizing breakthroughs from `louis-cfm/coucou`:
+- **Mochi Canvas 2D Ambient Companion**: Zero-dependency procedural squircle rendering with 3D spherical eye gaze projected towards the screen cursor (`tanh` distance damping), 13 distinct procedural eye shapes, and living physics (blinks, breathing, celebration sparks, sweat, and interactive squash/slap/dizzy states).
+- **Non-Blocking Agent Relay (`notch-relay.exe`)**: Native C# relay connecting to `\\.\pipe\notch-<sid>` with a strict 300ms budget. Never blocks or wedges CLI agents (Claude Code, Cursor, Antigravity) if the HUD is closed or unresponsive.
+- **Two-Phase Approval Gate**: 800ms UI ACK followed by 108s decision window, outputting native Claude Code `hookSpecificOutput` JSON upon `Shift+Enter` or button press.
+- **Synthetic Web Audio Cues**: 12 zero-asset audio cues (peek, open, close, blip, approve, finish, error, slap, annoyed, love, dizzy).
+- **Embedded Web & SSE Server**: High-speed native daemon on port 27182 serving the Atelier Obsidian HUD surface and streaming real-time agent telemetry.
 
 ---
 

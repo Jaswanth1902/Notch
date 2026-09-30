@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notch — Dynamic Island HUD</title>
+  <link rel="stylesheet" href="island.css">
+</head>
+<body>
+  <!-- Top 6px invisible wake strip -->
+  <div id="wake-strip"></div>
+
+  <!-- The Main Dynamic Island Pill -->
+  <div id="island">
+    <div id="bot-glow"></div>
+    <canvas id="bot-canvas"></canvas>
+
+    <div id="island-clip">
+      <!-- Compact Bar (shown when mode is compact) -->
+      <div id="compact-bar">
+        <span class="compact-name" id="compact-name">Notch</span>
+        <span class="compact-dot">·</span>
+        <span class="compact-status" id="compact-status">Standby</span>
+        <span class="compact-badge" id="compact-badge">0.0% CPU</span>
+      </div>
+
+      <div id="content">
+        <!-- Header -->
+        <div id="header">
+          <div class="tabs">
+            <button class="tab on" id="tab-overview">Overview</button>
+            <button class="tab" id="tab-fleet">Agents</button>
+          </div>
+          <div class="header-actions">
+            <button class="icon-btn" id="btn-sound" title="Toggle Sound">🔊</button>
+            <button class="icon-btn" id="btn-close-overview" title="Collapse">✕</button>
+          </div>
+        </div>
+
+        <!-- Views Container -->
+        <div id="views">
+          <!-- Overview View -->
+          <div class="view on" id="view-overview">
+            <div class="card">
+              <div class="who-row">
+                <span class="n" id="session-actor">Antigravity OS</span>
+                <span id="session-status">Idle · Ready for prompt</span>
+              </div>
+              <div class="title" id="session-title">System Nominal</div>
+              <div class="sub" id="session-metrics">CPU: 0.0% · RAM: 18MB · Q: 0.96</div>
+            </div>
+          </div>
+
+          <!-- Human-in-the-Loop Approval View -->
+          <div class="view" id="view-approval">
+            <div class="card wash-amber">
+              <div class="who-row">
+                <span class="n" id="approval-actor">Claude Code</span>
+                <span>requests tool authorization</span>
+              </div>
+              <div class="title" id="approval-title">Execute Shell Command</div>
+              <div class="code" id="approval-code">cargo build --release</div>
+              <div class="actions">
+                <button class="btn secondary" id="btn-deny">
+                  <span>Deny</span>
+                  <span class="kbd">Esc</span>
+                </button>
+                <button class="btn primary" id="btn-allow">
+                  <span>Allow</span>
+                  <span class="kbd">Shift+Enter</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Session Finished View -->
+          <div class="view" id="view-finished">
+            <div class="card wash-green">
+              <div class="who-row">
+                <span class="n">Autonomous Execution</span>
+                <span>Task Complete</span>
+              </div>
+              <div class="title">All Tests & Verification Passed</div>
+              <div class="sub">14 steps executed · 0 lint errors · Ready</div>
+            </div>
+          </div>
+
+          <!-- Confused / Dizzy View -->
+          <div class="view" id="view-confused">
+            <div class="card">
+              <div class="title">😵‍💫 Whoa, too many clicks!</div>
+              <div class="sub">Taking a quick breath... Back in 3 seconds.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auto-close countdown line -->
+    <div id="countdown"></div>
+  </div>
+
+  <script type="module">
+    import { IslandController } from "./island.js";
+    import { Sound } from "./sound.js";
+
+    window.island = new IslandController();
+
+    // Sound toggle
+    const sndBtn = document.getElementById("btn-sound");
+    if (sndBtn) {
+      sndBtn.onclick = () => {
+        Sound.enabled = !Sound.enabled;
+        sndBtn.innerText = Sound.enabled ? "🔊" : "🔇";
+      };
+    }
+
+    // Connect to SSE event stream if available
+    try {
+      const sse = new EventSource("/api/events");
+      sse.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === "approval" || data.mode === "approval-gate") {
+            window.island.triggerApproval(data);
+          } else if (data.state) {
+            window.island.engine.setState(data.state);
+            const titleEl = document.getElementById("session-title");
+            if (titleEl && data.summary) titleEl.innerText = data.summary;
+          }
+        } catch (err) {}
+      };
+    } catch (e) {}
+  </script>
+</body>
+</html>
